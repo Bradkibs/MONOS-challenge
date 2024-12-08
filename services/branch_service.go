@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"github.com/Bradkibs/MONOS-challenge/models"
+	"github.com/Bradkibs/MONOS-challenge/utils"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -63,27 +64,59 @@ func DeleteBranch(branchID string, businessID string, pool *pgxpool.Pool) error 
 
 	return nil
 }
-func UpdateBranchesForSubscription(subscriptionID string, branchChange int, pool *pgxpool.Pool) error {
-	// Fetch branch count for the business associated with the subscription
-	query := `
-		SELECT COUNT(*) 
-		FROM branches 
-		WHERE businessId = (SELECT businessId FROM subscriptions WHERE id = $1)`
-	var branchCount int
+func UpdateBranchesForSubscription(subscriptionID string, branchChange int, branchNames []string, pool *pgxpool.Pool) error {
+	// Fetch the business ID for the subscription
+	var businessID string
+	businessQuery := `SELECT businessId FROM subscriptions WHERE id = $1`
+	err := pool.QueryRow(context.Background(), businessQuery, subscriptionID).Scan(&businessID)
+	if err != nil {
+		return errors.New("subscription not found or invalid")
+	}
 
-	err := pool.QueryRow(context.Background(), query, subscriptionID).Scan(&branchCount)
+	// Fetch the current branch count for the business
+	var branchCount int
+	countQuery := `SELECT COUNT(*) FROM branches WHERE businessId = $1`
+	err = pool.QueryRow(context.Background(), countQuery, businessID).Scan(&branchCount)
 	if err != nil {
 		return err
 	}
 
 	// Calculate the new branch count
 	newBranchCount := branchCount + branchChange
-	if newBranchCount < 0 {
+	if newBranchCount < 1 {
 		return errors.New("cannot remove more branches than currently exist")
 	}
 
-	// Prorate charges for added/removed branches (billing adjustment logic would be implemented here)
-	// Assuming charges are calculated externally
+	// Adding branches
+	if branchChange > 0 {
+		if len(branchNames) < branchChange {
+			return errors.New("not enough branch names provided for the number of branches to add")
+		}
+
+		for _, branchName := range branchNames[:branchChange] {
+			newBranchID := utils.GenerateUniqueID()
+			insertQuery := `INSERT INTO branches (id, businessId, location) VALUES ($1, $2, $3)`
+			_, err := pool.Exec(context.Background(), insertQuery, newBranchID, businessID, branchName)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	// Removing branches
+	if branchChange < 0 {
+		if len(branchNames) < -branchChange {
+			return errors.New("not enough branch names provided for the number of branches to remove")
+		}
+
+		for _, branchName := range branchNames[:(-branchChange)] {
+			deleteQuery := `DELETE FROM branches WHERE businessId = $1 AND location = $2`
+			_, err := pool.Exec(context.Background(), deleteQuery, businessID, branchName)
+			if err != nil {
+				return err
+			}
+		}
+	}
 
 	return nil
 }

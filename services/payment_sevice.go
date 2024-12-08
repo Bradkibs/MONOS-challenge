@@ -10,9 +10,13 @@ import (
 
 func AddPayment(payment *models.Payment, pool *pgxpool.Pool) error {
 	// Validate if the subscription exists and is active
-	var subscriptionStatus string
-	query := `SELECT status FROM subscriptions WHERE id = $1`
-	err := pool.QueryRow(context.Background(), query, payment.SubscriptionID).Scan(&subscriptionStatus)
+	var subscriptionStatus, tier string
+	var businessID string
+	var branchCount int
+	query := `SELECT s.status, s.tier, s.businessId 
+			  FROM subscriptions s 
+			  WHERE s.id = $1`
+	err := pool.QueryRow(context.Background(), query, payment.SubscriptionID).Scan(&subscriptionStatus, &tier, &businessID)
 	if err != nil {
 		return errors.New("subscription does not exist")
 	}
@@ -20,11 +24,45 @@ func AddPayment(payment *models.Payment, pool *pgxpool.Pool) error {
 		return errors.New("cannot add payment to an inactive subscription")
 	}
 
-	// Insert the payment into the database
-	insertQuery := `INSERT INTO payments (id, subscriptionId, amount, date, status) VALUES ($1, $2, $3, $4, $5)`
+	// Fetch the number of branches for the business
+	branchQuery := `SELECT COUNT(*) FROM branches WHERE businessId = $1`
+	err = pool.QueryRow(context.Background(), branchQuery, businessID).Scan(&branchCount)
+	if err != nil {
+		return errors.New("could not fetch branch count")
+	}
+
+	// Calculate the expected payment amount
+	var basePrice float64
+	switch tier {
+	case "Starter":
+		basePrice = 1.0
+	case "Pro":
+		basePrice = 3.0
+	case "Enterprise":
+		basePrice = 5.0
+	default:
+		return errors.New("invalid subscription tier")
+	}
+	var expectedAmount float64
+	if branchCount > 1 {
+		expectedAmount = basePrice + float64(branchCount)
+	} else {
+		expectedAmount = basePrice
+	}
+
+	// Check if the payment amount matches the expected amount
+	if payment.Amount != expectedAmount {
+		payment.Status = "partial"
+	} else {
+		payment.Status = "completed"
+	}
+
+	// Add the payment to the database
+	insertQuery := `INSERT INTO payments (id, subscriptionId, amount, date, status) 
+					VALUES ($1, $2, $3, $4, $5)`
 	_, err = pool.Exec(context.Background(), insertQuery, payment.ID, payment.SubscriptionID, payment.Amount, payment.Date, payment.Status)
 	if err != nil {
-		return err
+		return errors.New("failed to add payment to the database")
 	}
 
 	return nil
