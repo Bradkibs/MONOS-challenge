@@ -1,3 +1,5 @@
 .idea
 .env
 MONOS-challenge.exe
+*/*/.env
+*/.env
