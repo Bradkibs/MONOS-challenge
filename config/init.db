@@ -48,3 +48,23 @@ CREATE TABLE products (
     quantity INT NOT NULL,
     price DECIMAL NOT NULL
 );
+CREATE TABLE notifications (
+    id VARCHAR PRIMARY KEY,
+    userId VARCHAR REFERENCES users(id) ON DELETE CASCADE,
+    invoiceId VARCHAR REFERENCES invoices(id) ON DELETE SET NULL,
+    type VARCHAR(50) NOT NULL,
+    message TEXT NOT NULL, VARCHAR(20) DEFAULT 'pending',
+    createdAt TIMESTAMP DEFAULT NOW(),
+    updatedAt TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE claims (
+    id VARCHAR PRIMARY KEY,
+    user_id VARCHAR NOT NULL,
+    email VARCHAR(255) NOT NULL,
+    issued_at TIMESTAMP NOT NULL,
+    expires_at TIMESTAMP NOT NULL,
+    role VARCHAR(50),
+    status VARCHAR(50) DEFAULT 'active',
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
