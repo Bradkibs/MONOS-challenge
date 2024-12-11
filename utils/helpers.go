@@ -7,8 +7,8 @@ import (
 )
 
 // GenerateUniqueID generates a new unique UUID string.
-func GenerateUniqueID() string {
-	return uuid.New().String()
+func GenerateUniqueID() uuid.UUID {
+	return uuid.New()
 }
 
 func SendEmail(to string, subject string, message string) error {

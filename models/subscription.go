@@ -12,5 +12,5 @@ type Subscription struct {
 	StartDate  time.Time  `json:"start_date"`
 	EndDate    *time.Time `json:"end_date"`
 	Status     string     `json:"status"`
-	DeletedAt  *time.Time `json:"deleted_at""`
+	DeletedAt  *time.Time `json:"deleted_at"`
 }

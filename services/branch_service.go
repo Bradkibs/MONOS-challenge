@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"github.com/Bradkibs/MONOS-challenge/models"
-	"github.com/Bradkibs/MONOS-challenge/utils"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -64,6 +64,7 @@ func DeleteBranch(branchID string, businessID string, pool *pgxpool.Pool) error 
 
 	return nil
 }
+
 func UpdateBranchesForSubscription(subscriptionID string, branchChange int, branchNames []string, pool *pgxpool.Pool) error {
 	// Fetch the business ID for the subscription
 	var businessID string
@@ -94,7 +95,7 @@ func UpdateBranchesForSubscription(subscriptionID string, branchChange int, bran
 		}
 
 		for _, branchName := range branchNames[:branchChange] {
-			newBranchID := utils.GenerateUniqueID()
+			newBranchID := uuid.New()
 			insertQuery := `INSERT INTO branches (id, businessId, location) VALUES ($1, $2, $3)`
 			_, err := pool.Exec(context.Background(), insertQuery, newBranchID, businessID, branchName)
 			if err != nil {
@@ -117,6 +118,5 @@ func UpdateBranchesForSubscription(subscriptionID string, branchChange int, bran
 			}
 		}
 	}
-
 	return nil
 }

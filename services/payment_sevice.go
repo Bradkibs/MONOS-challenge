@@ -3,20 +3,22 @@ package services
 import (
 	"context"
 	"errors"
+	"fmt"
+	"github.com/google/uuid"
+	"time"
+
 	"github.com/Bradkibs/MONOS-challenge/models"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"time"
 )
 
 func AddPayment(payment *models.Payment, pool *pgxpool.Pool) error {
-	// Validate if the subscription exists and is active
-	var subscriptionStatus, tier string
-	var businessID string
+	var subscriptionStatus, tier, businessID string
 	var branchCount int
-	query := `SELECT s.status, s.tier, s.businessId 
-			  FROM subscriptions s 
-			  WHERE s.id = $1`
-	err := pool.QueryRow(context.Background(), query, payment.SubscriptionID).Scan(&subscriptionStatus, &tier, &businessID)
+
+	err := pool.QueryRow(context.Background(), `
+		SELECT status, tier, businessId 
+		FROM subscriptions WHERE id = $1`, payment.SubscriptionID).
+		Scan(&subscriptionStatus, &tier, &businessID)
 	if err != nil {
 		return errors.New("subscription does not exist")
 	}
@@ -24,43 +26,33 @@ func AddPayment(payment *models.Payment, pool *pgxpool.Pool) error {
 		return errors.New("cannot add payment to an inactive subscription")
 	}
 
-	// Fetch the number of branches for the business
-	branchQuery := `SELECT COUNT(*) FROM branches WHERE businessId = $1`
-	err = pool.QueryRow(context.Background(), branchQuery, businessID).Scan(&branchCount)
+	err = pool.QueryRow(context.Background(), `
+		SELECT COUNT(*) FROM branches WHERE businessId = $1`, businessID).
+		Scan(&branchCount)
 	if err != nil {
 		return errors.New("could not fetch branch count")
 	}
 
-	// Calculate the expected payment amount
-	var basePrice float64
-	switch tier {
-	case "Starter":
-		basePrice = 1.0
-	case "Pro":
-		basePrice = 3.0
-	case "Enterprise":
-		basePrice = 5.0
-	default:
+	basePrices := map[string]float64{"Starter": 1.0, "Pro": 3.0, "Enterprise": 5.0}
+	basePrice, exists := basePrices[tier]
+	if !exists {
 		return errors.New("invalid subscription tier")
 	}
-	var expectedAmount float64
+
+	expectedAmount := basePrice
 	if branchCount > 1 {
-		expectedAmount = basePrice + float64(branchCount)
-	} else {
-		expectedAmount = basePrice
+		expectedAmount += float64(branchCount)
 	}
 
-	// Check if the payment amount matches the expected amount
+	payment.Status = "completed"
 	if payment.Amount != expectedAmount {
 		payment.Status = "partial"
-	} else {
-		payment.Status = "completed"
 	}
 
-	// Add the payment to the database
-	insertQuery := `INSERT INTO payments (id, subscriptionId, amount, date, status) 
-					VALUES ($1, $2, $3, $4, $5)`
-	_, err = pool.Exec(context.Background(), insertQuery, payment.ID, payment.SubscriptionID, payment.Amount, payment.Date, payment.Status)
+	_, err = pool.Exec(context.Background(), `
+		INSERT INTO payments (id, subscriptionId, amount, date, status) 
+		VALUES ($1, $2, $3, $4, $5)`,
+		payment.ID, payment.SubscriptionID, payment.Amount, payment.Date, payment.Status)
 	if err != nil {
 		return errors.New("failed to add payment to the database")
 	}
@@ -69,9 +61,10 @@ func AddPayment(payment *models.Payment, pool *pgxpool.Pool) error {
 }
 
 func GetPayment(paymentID string, pool *pgxpool.Pool) (*models.Payment, error) {
-	query := `SELECT id, subscriptionId, amount, date, status FROM payments WHERE id = $1`
 	var payment models.Payment
-	err := pool.QueryRow(context.Background(), query, paymentID).Scan(&payment.ID, &payment.SubscriptionID, &payment.Amount, &payment.Date, &payment.Status)
+	err := pool.QueryRow(context.Background(), `
+		SELECT id, subscriptionId, amount, date, status FROM payments WHERE id = $1`, paymentID).
+		Scan(&payment.ID, &payment.SubscriptionID, &payment.Amount, &payment.Date, &payment.Status)
 	if err != nil {
 		return nil, errors.New("payment not found")
 	}
@@ -79,8 +72,8 @@ func GetPayment(paymentID string, pool *pgxpool.Pool) (*models.Payment, error) {
 }
 
 func GetPaymentsBySubscription(subscriptionID string, pool *pgxpool.Pool) ([]models.Payment, error) {
-	query := `SELECT id, subscriptionId, amount, date, status FROM payments WHERE subscriptionId = $1`
-	rows, err := pool.Query(context.Background(), query, subscriptionID)
+	rows, err := pool.Query(context.Background(), `
+		SELECT id, subscriptionId, amount, date, status FROM payments WHERE subscriptionId = $1`, subscriptionID)
 	if err != nil {
 		return nil, err
 	}
@@ -99,85 +92,64 @@ func GetPaymentsBySubscription(subscriptionID string, pool *pgxpool.Pool) ([]mod
 }
 
 func UpdatePayment(payment *models.Payment, pool *pgxpool.Pool) error {
-	query := `UPDATE payments SET amount = $2, date = $3, status = $4 WHERE id = $1`
-	cmdTag, err := pool.Exec(context.Background(), query, payment.ID, payment.Amount, payment.Date, payment.Status)
+	cmdTag, err := pool.Exec(context.Background(), `
+		UPDATE payments SET amount = $2, date = $3, status = $4 WHERE id = $1`,
+		payment.ID, payment.Amount, payment.Date, payment.Status)
 	if err != nil {
 		return err
 	}
-
 	if cmdTag.RowsAffected() == 0 {
-		return errors.New("no rows were updated, payment not found")
+		return errors.New("payment not found")
 	}
-
 	return nil
 }
 
-func DeletePayment(paymentID string, pool *pgxpool.Pool) error {
-	query := `DELETE FROM payments WHERE id = $1`
+func DeletePayment(paymentID uuid.UUID, pool *pgxpool.Pool) error {
+	query := `UPDATE payments SET deleted_at = NOW() WHERE id = $1`
 	cmdTag, err := pool.Exec(context.Background(), query, paymentID)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to delete payment: %w", err)
 	}
-
 	if cmdTag.RowsAffected() == 0 {
 		return errors.New("no rows were deleted, payment not found")
 	}
-
 	return nil
 }
 
 func HandleOverduePayment(subscriptionID string, pool *pgxpool.Pool) error {
-	query := `SELECT endDate, status FROM subscriptions WHERE id = $1`
 	var endDate time.Time
 	var status string
-
-	// Fetch subscription details
-	err := pool.QueryRow(context.Background(), query, subscriptionID).Scan(&endDate, &status)
-	if err != nil {
-		return err
+	err := pool.QueryRow(context.Background(), `
+		SELECT endDate, status FROM subscriptions WHERE id = $1`, subscriptionID).
+		Scan(&endDate, &status)
+	if err != nil || status != "active" {
+		return errors.New("invalid or inactive subscription")
 	}
 
-	// Ensure the subscription is active
-	if status != "active" {
-		return errors.New("subscription is not active, cannot process overdue payment")
-	}
-
-	// Check if the subscription is overdue
-	gracePeriod := 7 * 24 * time.Hour
-	if time.Now().After(endDate.Add(gracePeriod)) {
-		// Suspend the subscription
-		updateQuery := `UPDATE subscriptions SET status = 'suspended' WHERE id = $1`
-		_, err = pool.Exec(context.Background(), updateQuery, subscriptionID)
+	if time.Now().After(endDate.Add(7 * 24 * time.Hour)) {
+		_, err := pool.Exec(context.Background(), `
+			UPDATE subscriptions SET status = 'suspended' WHERE id = $1`, subscriptionID)
 		if err != nil {
 			return err
 		}
 	}
-
 	return nil
 }
 
 func HandlePartialPayment(paymentID string, pool *pgxpool.Pool) error {
-	query := `SELECT amount, status FROM payments WHERE id = $1`
 	var amount float64
 	var status string
+	err := pool.QueryRow(context.Background(), `
+		SELECT amount, status FROM payments WHERE id = $1`, paymentID).
+		Scan(&amount, &status)
+	if err != nil || status != "partial" {
+		return errors.New("invalid payment or not partial")
+	}
 
-	// Fetch payment details
-	err := pool.QueryRow(context.Background(), query, paymentID).Scan(&amount, &status)
+	_, err = pool.Exec(context.Background(), `
+		UPDATE payments SET status = 'rejected' WHERE id = $1`, paymentID)
 	if err != nil {
 		return err
 	}
-
-	// Check if the payment is partial
-	if status == "partial" {
-		// Reject the payment
-		updateQuery := `UPDATE payments SET status = 'rejected' WHERE id = $1`
-		_, err = pool.Exec(context.Background(), updateQuery, paymentID)
-		if err != nil {
-			return err
-		}
-
-		return errors.New("partial payment rejected, please retry with sufficient funds")
-	}
-
-	return nil
+	return errors.New("partial payment rejected, please retry with sufficient funds")
 }

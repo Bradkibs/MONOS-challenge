@@ -3,9 +3,10 @@ package services
 import (
 	"context"
 	"errors"
+	"time"
+
 	"github.com/Bradkibs/MONOS-challenge/models"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"time"
 )
 
 func CalculateSubscriptionCost(subscriptionTier string, branchCount int) (float64, error) {
@@ -21,47 +22,35 @@ func CalculateSubscriptionCost(subscriptionTier string, branchCount int) (float6
 	default:
 		return 0.0, errors.New("invalid subscription tier")
 	}
-
-	// Calculate the dynamic pricing for additional branches
 	totalCost := basePrice + float64(branchCount)*1.0
 	return totalCost, nil
 }
 
 func CancelSubscription(subscriptionID string, pool *pgxpool.Pool) error {
-	query := `SELECT startDate, status FROM subscriptions WHERE id = $1`
+	query := `SELECT startDate, status FROM subscriptions WHERE id = $1 AND deleted_at IS NULL`
 	var startDate time.Time
 	var status string
 
-	// Fetch subscription details
 	err := pool.QueryRow(context.Background(), query, subscriptionID).Scan(&startDate, &status)
 	if err != nil {
 		return err
 	}
 
-	// Ensure the subscription is active
 	if status != "active" {
 		return errors.New("subscription is not active, cancellation not possible")
 	}
 
-	// Check if cancellation is within 1 week of the start date
 	if time.Since(startDate) > 7*24*time.Hour {
 		return errors.New("refund not allowed after 1 week of subscription start")
 	}
 
-	// Deactivate subscription and associated listings
-	updateSubscription := `UPDATE subscriptions SET status = 'canceled' WHERE id = $1`
-	_, err = pool.Exec(context.Background(), updateSubscription, subscriptionID)
-	if err != nil {
-		return err
-	}
-
-	// No refund is issued, but listings are deactivated
-	return nil
+	updateQuery := `UPDATE subscriptions SET status = 'canceled', deleted_at = NOW() WHERE id = $1`
+	_, err = pool.Exec(context.Background(), updateQuery, subscriptionID)
+	return err
 }
 
-func DowngradeSubscription(subscriptionID string, newTier string, pool *pgxpool.Pool) error {
-	// Fetch business ID and product count for the subscription
-	query := `SELECT s.businessId, COUNT(p.id) FROM subscriptions s LEFT JOIN products p ON s.businessId = p.businessId WHERE s.id = $1 GROUP BY s.businessId`
+func DowngradeSubscription(subscriptionID, newTier string, pool *pgxpool.Pool) error {
+	query := `SELECT s.businessId, COUNT(p.id) FROM subscriptions s LEFT JOIN products p ON s.businessId = p.businessId WHERE s.id = $1 AND s.deleted_at IS NULL GROUP BY s.businessId`
 	var businessID string
 	var productCount int
 
@@ -70,82 +59,52 @@ func DowngradeSubscription(subscriptionID string, newTier string, pool *pgxpool.
 		return err
 	}
 
-	// Validate product count for downgrade
-	if newTier == "Starter" && productCount > 10 {
-		return errors.New("reduce product count to 10 or fewer before downgrading to Starter")
-	}
-	// Validate product count for downgrade
-	if newTier == "Pro" && productCount > 100 {
-		return errors.New("reduce product count to 100 or fewer before downgrading to Pro")
+	if (newTier == "Starter" && productCount > 10) || (newTier == "Pro" && productCount > 100) {
+		return errors.New("reduce product count before downgrading")
 	}
 
-	// Perform the downgrade
-	updateQuery := `UPDATE subscriptions SET tier = $2 WHERE id = $1`
+	updateQuery := `UPDATE subscriptions SET tier = $2 WHERE id = $1 AND deleted_at IS NULL`
 	_, err = pool.Exec(context.Background(), updateQuery, subscriptionID, newTier)
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return err
 }
 
 func HandleSubscriptionOverlap(currentSubscriptionID string, newSubscription *models.Subscription, pool *pgxpool.Pool) error {
-	query := `SELECT endDate, status FROM subscriptions WHERE id = $1`
+	query := `SELECT endDate, status FROM subscriptions WHERE id = $1 AND deleted_at IS NULL`
 	var currentEndDate time.Time
 	var currentStatus string
 
-	// Fetch current subscription details
 	err := pool.QueryRow(context.Background(), query, currentSubscriptionID).Scan(&currentEndDate, &currentStatus)
 	if err != nil {
 		return err
 	}
 
-	// Ensure the current subscription is active
 	if currentStatus != "active" {
-		return errors.New("current subscription is not active, cannot merge")
+		return errors.New("current subscription is not active")
 	}
 
-	// Parse new subscription dates as time.Time
-	newStartDate, err := time.Parse("2016-01-02", newSubscription.StartDate)
-	if err != nil {
-		return errors.New("invalid new subscription start date format")
-	}
-	newEndDate, err := time.Parse("2016-01-02", newSubscription.EndDate)
-	if err != nil {
-		return errors.New("invalid new subscription end date format")
-	}
-
-	// Check for overlap and merge subscriptions
-	if newStartDate.Before(currentEndDate) {
-		// Extend the current subscription's end date
-		extendedEndDate := currentEndDate.Add(newEndDate.Sub(newStartDate))
-		updateQuery := `UPDATE subscriptions SET endDate = $2 WHERE id = $1`
+	if newSubscription.StartDate.Before(currentEndDate) {
+		extendedEndDate := currentEndDate.Add(newSubscription.EndDate.Sub(newSubscription.StartDate))
+		updateQuery := `UPDATE subscriptions SET endDate = $2 WHERE id = $1 AND deleted_at IS NULL`
 		_, err = pool.Exec(context.Background(), updateQuery, currentSubscriptionID, extendedEndDate)
-		if err != nil {
-			return err
-		}
-		return nil
+		return err
 	}
 
-	return errors.New("no overlap detected or invalid subscription")
+	return errors.New("no overlap detected")
 }
 
 func CreateSubscription(subscription *models.Subscription, pool *pgxpool.Pool) error {
-	query := `INSERT INTO subscriptions (id, tier, price, startDate, endDate, status) VALUES ($1, $2, $3, $4, $5, $6)`
-	_, err := pool.Exec(context.Background(), query, subscription.ID, subscription.Tier, subscription.Price, subscription.StartDate, subscription.EndDate, subscription.Status)
-	if err != nil {
-		return err
-	}
-	return nil
+	query := `INSERT INTO subscriptions (id, businessId, tier, startDate, endDate, status) VALUES ($1, $2, $3, $4, $5, $6)`
+	_, err := pool.Exec(context.Background(), query, subscription.ID, subscription.BusinessID, subscription.Tier, subscription.StartDate, subscription.EndDate, subscription.Status)
+	return err
 }
 
 func GetSubscription(subscriptionID string, pool *pgxpool.Pool) (*models.Subscription, error) {
-	query := `SELECT id, tier, price, startDate, endDate, status FROM subscriptions WHERE id = $1`
+	query := `SELECT id, businessId, tier, startDate, endDate, status FROM subscriptions WHERE id = $1 AND deleted_at IS NULL`
 	var subscription models.Subscription
 	err := pool.QueryRow(context.Background(), query, subscriptionID).Scan(
 		&subscription.ID,
+		&subscription.BusinessID,
 		&subscription.Tier,
-		&subscription.Price,
 		&subscription.StartDate,
 		&subscription.EndDate,
 		&subscription.Status,
@@ -157,25 +116,25 @@ func GetSubscription(subscriptionID string, pool *pgxpool.Pool) (*models.Subscri
 }
 
 func UpdateSubscription(subscription *models.Subscription, pool *pgxpool.Pool) error {
-	query := `UPDATE subscriptions SET tier = $2, price = $3, startDate = $4, endDate = $5, status = $6 WHERE id = $1`
-	cmdTag, err := pool.Exec(context.Background(), query, subscription.ID, subscription.Tier, subscription.Price, subscription.StartDate, subscription.EndDate, subscription.Status)
+	query := `UPDATE subscriptions SET tier = $2, startDate = $3, endDate = $4, status = $5 WHERE id = $1 AND deleted_at IS NULL`
+	cmdTag, err := pool.Exec(context.Background(), query, subscription.ID, subscription.Tier, subscription.StartDate, subscription.EndDate, subscription.Status)
 	if err != nil {
 		return err
 	}
 	if cmdTag.RowsAffected() == 0 {
-		return errors.New("no rows were updated, subscription not found")
+		return errors.New("no rows updated")
 	}
 	return nil
 }
 
 func DeleteSubscription(subscriptionID string, pool *pgxpool.Pool) error {
-	query := `DELETE FROM subscriptions WHERE id = $1`
+	query := `UPDATE subscriptions SET deleted_at = NOW() WHERE id = $1 AND deleted_at IS NULL`
 	cmdTag, err := pool.Exec(context.Background(), query, subscriptionID)
 	if err != nil {
 		return err
 	}
 	if cmdTag.RowsAffected() == 0 {
-		return errors.New("no rows were deleted, subscription not found")
+		return errors.New("no rows deleted")
 	}
 	return nil
 }

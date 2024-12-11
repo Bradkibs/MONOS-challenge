@@ -4,20 +4,18 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/jackc/pgx/v5"
-	"regexp"
-	"unicode"
-
 	"github.com/Bradkibs/MONOS-challenge/models"
 	"github.com/golang-jwt/jwt/v4"
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/crypto/bcrypt"
 	"os"
-
+	"regexp"
 	"time"
+	"unicode"
 )
 
-// JWT secret key (use environment variables for better security)
 var jwtSecret = os.Getenv("JWT_SECRET")
 
 func HashPassword(password string) (string, error) {
@@ -32,36 +30,27 @@ func CheckPassword(hashedPassword, plainPassword string) error {
 	return bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(plainPassword))
 }
 
-// GenerateJWT generates a new JWT token for the user
-func GenerateJWT(userID, email string) (string, error) {
-	// Set expiration time
+func GenerateJWT(userID, emailOrPhoneNumber, role string, deletedAt *time.Time) (string, error) {
 	expirationTime := time.Now().Add(24 * time.Hour)
-
-	// Create the claims
 	claims := &models.Claims{
-		UserID: userID,
-		Email:  email,
-		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(expirationTime),
-		},
+		ID:        uuid.New(),
+		UserID:    uuid.MustParse(userID),
+		Email:     emailOrPhoneNumber,
+		IssuedAt:  time.Now(),
+		ExpiresAt: expirationTime,
+		Role:      role,
+		DeletedAt: deletedAt,
 	}
-
-	// Create the token
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-
-	// Sign the token
 	signedToken, err := token.SignedString([]byte(jwtSecret))
 	if err != nil {
 		return "", err
 	}
-
 	return signedToken, nil
 }
 
 func ParseJWT(tokenString string) (*models.Claims, error) {
 	claims := &models.Claims{}
-
-	// Parse the token
 	token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
@@ -69,62 +58,86 @@ func ParseJWT(tokenString string) (*models.Claims, error) {
 		return []byte(jwtSecret), nil
 	})
 
-	// Check if the token is valid
 	if err != nil || !token.Valid {
 		return nil, errors.New("invalid or expired token")
 	}
-
 	return claims, nil
 }
 
-func RegisterUser(email, password string, pool *pgxpool.Pool) (string, error) {
-	// Validate the email format
+func RegisterUserByEmail(email, password, role string, pool *pgxpool.Pool) (string, error) {
 	if !isValidEmail(email) {
 		return "", errors.New("invalid email format")
 	}
-
-	// Validate the password strength
 	if !isValidPassword(password) {
 		return "", errors.New("password must be at least 8 characters long and contain a mix of letters, numbers, and special characters")
 	}
 
-	// Check if the email already exists
-	existingUserQuery := `SELECT id FROM users WHERE email = $1`
-	var existingUserID string
-	err := pool.QueryRow(context.Background(), existingUserQuery, email).Scan(&existingUserID)
+	var existingUserID uuid.UUID
+	err := pool.QueryRow(context.Background(), "SELECT id FROM users WHERE email = $1", email).Scan(&existingUserID)
 	if err == nil {
 		return "", errors.New("user with this email already exists")
 	} else if err != pgx.ErrNoRows {
-		// Handle unexpected database errors
 		return "", fmt.Errorf("failed to check for existing user: %v", err)
 	}
 
-	// Hash the password
 	hashedPassword, err := HashPassword(password)
 	if err != nil {
 		return "", fmt.Errorf("failed to hash password: %v", err)
 	}
 
-	// Save the user to the database
-	createUserQuery := `INSERT INTO users (email, password) VALUES ($1, $2) RETURNING id`
-	var userID string
-	err = pool.QueryRow(context.Background(), createUserQuery, email, hashedPassword).Scan(&userID)
+	var userID uuid.UUID
+	err = pool.QueryRow(context.Background(), "INSERT INTO users (email, password, role) VALUES ($1, $2, $3) RETURNING id", email, hashedPassword, role).Scan(&userID)
 	if err != nil {
 		return "", fmt.Errorf("failed to create user: %v", err)
 	}
 
-	// Generate a JWT for the new user
-	token, err := GenerateJWT(userID, email)
+	token, err := GenerateJWT(userID.String(), email, role, nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to generate token: %v", err)
 	}
+	return token, nil
+}
+func RegisterUserByPhoneNumber(phoneNumber, password, role string, pool *pgxpool.Pool) (string, error) {
+	if !isValidPhoneNumber(phoneNumber) {
+		return "", errors.New("invalid Phone number format")
+	}
+	if !isValidPassword(password) {
+		return "", errors.New("password must be at least 8 characters long and contain a mix of letters, numbers, and special characters")
+	}
 
+	var existingUserID uuid.UUID
+	err := pool.QueryRow(context.Background(), "SELECT id FROM users WHERE email = $1", phoneNumber).Scan(&existingUserID)
+	if err == nil {
+		return "", errors.New("user with this email already exists")
+	} else if err != pgx.ErrNoRows {
+		return "", fmt.Errorf("failed to check for existing user: %v", err)
+	}
+
+	hashedPassword, err := HashPassword(password)
+	if err != nil {
+		return "", fmt.Errorf("failed to hash password: %v", err)
+	}
+
+	var userID uuid.UUID
+	err = pool.QueryRow(context.Background(), "INSERT INTO users (phone_number, password, role) VALUES ($1, $2, $3) RETURNING id", phoneNumber, hashedPassword, role).Scan(&userID)
+	if err != nil {
+		return "", fmt.Errorf("failed to create user: %v", err)
+	}
+
+	token, err := GenerateJWT(userID.String(), phoneNumber, role, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to generate token: %v", err)
+	}
 	return token, nil
 }
 
+func isValidPhoneNumber(phone string) bool {
+	re := regexp.MustCompile(`^\+?[1-9]\d{1,14}$`)
+	return re.MatchString(phone)
+}
+
 func isValidEmail(email string) bool {
-	emailRegex := `^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`
-	re := regexp.MustCompile(emailRegex)
+	re := regexp.MustCompile(`^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`)
 	return re.MatchString(email)
 }
 
@@ -132,9 +145,7 @@ func isValidPassword(password string) bool {
 	if len(password) < 8 {
 		return false
 	}
-	hasNumber := false
-	hasSpecial := false
-	hasLetter := false
+	hasNumber, hasSpecial, hasLetter := false, false, false
 	for _, char := range password {
 		switch {
 		case unicode.IsNumber(char):
@@ -149,111 +160,25 @@ func isValidPassword(password string) bool {
 }
 
 func LoginUser(email, password string, pool *pgxpool.Pool) (string, error) {
-	// Retrieve user from the database
-	query := `SELECT id, password FROM users WHERE email = $1`
-	var userID, hashedPassword string
-	err := pool.QueryRow(context.Background(), query, email).Scan(&userID, &hashedPassword)
+	var userID uuid.UUID
+	var hashedPassword, role string
+	var deletedAt *time.Time
+	err := pool.QueryRow(context.Background(), "SELECT id, password, role, deleted_at FROM users WHERE email = $1", email).Scan(&userID, &hashedPassword, &role, &deletedAt)
 	if err != nil {
-		return "", fmt.Errorf("invalid email or password")
+		return "", errors.New("invalid email or password")
 	}
 
-	// Check the password
-	err = CheckPassword(hashedPassword, password)
-	if err != nil {
-		return "", fmt.Errorf("invalid email or password")
+	if deletedAt != nil {
+		return "", errors.New("account is deactivated")
 	}
 
-	// Generate a JWT for the user
-	token, err := GenerateJWT(userID, email)
+	if err := CheckPassword(hashedPassword, password); err != nil {
+		return "", errors.New("invalid email or password")
+	}
+
+	token, err := GenerateJWT(userID.String(), email, role, deletedAt)
 	if err != nil {
 		return "", fmt.Errorf("failed to generate token: %v", err)
 	}
-
 	return token, nil
-}
-
-func DeleteUser(userID string, pool *pgxpool.Pool) error {
-	// Check if the user exists
-	checkUserQuery := `SELECT id FROM users WHERE id = $1`
-	var existingUserID string
-	err := pool.QueryRow(context.Background(), checkUserQuery, userID).Scan(&existingUserID)
-	if err == pgx.ErrNoRows {
-		return errors.New("user not found")
-	} else if err != nil {
-		return fmt.Errorf("failed to check user existence: %v", err)
-	}
-
-	// Delete the user
-	deleteUserQuery := `DELETE FROM users WHERE id = $1`
-	_, err = pool.Exec(context.Background(), deleteUserQuery, userID)
-	if err != nil {
-		return fmt.Errorf("failed to delete user: %v", err)
-	}
-
-	return nil
-}
-
-func UpdateUser(userID string, newEmail, newPassword string, pool *pgxpool.Pool) error {
-	// Check if the user exists
-	checkUserQuery := `SELECT id FROM users WHERE id = $1`
-	var existingUserID string
-	err := pool.QueryRow(context.Background(), checkUserQuery, userID).Scan(&existingUserID)
-	if err == pgx.ErrNoRows {
-		return errors.New("user not found")
-	} else if err != nil {
-		return fmt.Errorf("failed to check user existence: %v", err)
-	}
-
-	// Start building the update query
-	updateFields := []string{}
-	updateValues := []interface{}{userID}
-
-	if newEmail != "" {
-		if !isValidEmail(newEmail) {
-			return errors.New("invalid email format")
-		}
-		updateFields = append(updateFields, "email = $2")
-		updateValues = append(updateValues, newEmail)
-	}
-
-	if newPassword != "" {
-		if !isValidPassword(newPassword) {
-			return errors.New("password must be at least 8 characters long and contain a mix of letters, numbers, and special characters")
-		}
-		// Hash the new password
-		hashedPassword, err := HashPassword(newPassword)
-		if err != nil {
-			return fmt.Errorf("failed to hash password: %v", err)
-		}
-		updateFields = append(updateFields, fmt.Sprintf("password = $%d", len(updateValues)+1))
-		updateValues = append(updateValues, hashedPassword)
-	}
-
-	// Ensure there is at least one field to update
-	if len(updateFields) == 0 {
-		return errors.New("no fields to update")
-	}
-
-	// Build the query
-	updateQuery := fmt.Sprintf(`UPDATE users SET %s WHERE id = $1`,
-		joinFields(updateFields, ", "))
-
-	// Execute the query
-	_, err = pool.Exec(context.Background(), updateQuery, updateValues...)
-	if err != nil {
-		return fmt.Errorf("failed to update user: %v", err)
-	}
-
-	return nil
-}
-
-func joinFields(fields []string, sep string) string {
-	result := ""
-	for i, field := range fields {
-		if i > 0 {
-			result += sep
-		}
-		result += field
-	}
-	return result
 }

@@ -6,10 +6,10 @@ import (
 )
 
 type Invoice struct {
-	ID        uuid.UUID  `json:"id"`         // UUID as primary key
-	PaymentID uuid.UUID  `json:"payment_id"` // Foreign key referencing Payments
-	IssueDate time.Time  `json:"issue_date"` // Issue date as DATE type
-	DueDate   time.Time  `json:"due_date"`   // Due date as DATE type
-	Status    string     `json:"status"`     // Status of the invoice
-	DeletedAt *time.Time `json:"deleted_at"` // Soft delete column, nullable
+	ID        uuid.UUID  `json:"id"`
+	PaymentID uuid.UUID  `json:"payment_id"`
+	IssueDate time.Time  `json:"issue_date"`
+	DueDate   time.Time  `json:"due_date"`
+	Status    string     `json:"status"`
+	DeletedAt *time.Time `json:"deleted_at"`
 }
