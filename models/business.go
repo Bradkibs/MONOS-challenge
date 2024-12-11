@@ -1,8 +1,14 @@
 package models
 
+import (
+	"github.com/google/uuid"
+	"time"
+)
+
 type Business struct {
-	ID             string `json:"id"`
-	VendorID       string `json:"vendor_id"`
-	Name           string `json:"name"`
-	SubscriptionID string `json:"subscription_id"`
+	ID          uuid.UUID  `json:"id"`
+	Name        string     `json:"name"`
+	Description string     `json:"description"`
+	VendorID    uuid.UUID  `json:"vendor_id"`
+	DeletedAt   *time.Time `json:"deleted_at"`
 }

@@ -1,10 +1,16 @@
 package models
 
+import (
+	"github.com/google/uuid"
+	"time"
+)
+
 type Subscription struct {
-	ID        string  `json:"id"`
-	Tier      string  `json:"tier"`
-	Price     float64 `json:"price"`
-	StartDate string  `json:"start_date"`
-	EndDate   string  `json:"end_date"`
-	Status    string  `json:"Status"`
+	ID         uuid.UUID  `json:"id"`
+	BusinessID uuid.UUID  `json:"business_id"`
+	Tier       string     `json:"tier"`
+	StartDate  time.Time  `json:"start_date"`
+	EndDate    *time.Time `json:"end_date"`
+	Status     string     `json:"status"`
+	DeletedAt  *time.Time `json:"deleted_at""`
 }

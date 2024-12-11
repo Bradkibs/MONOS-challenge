@@ -109,7 +109,6 @@ func UpdateBusiness(business *models.Business, pool *pgxpool.Pool) error {
 	return nil
 }
 
-// Delete a business by ID
 func DeleteBusiness(businessID string, pool *pgxpool.Pool) error {
 	query := `DELETE FROM businesses WHERE id = $1`
 	cmdTag, err := pool.Exec(context.Background(), query, businessID)

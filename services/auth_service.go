@@ -171,3 +171,89 @@ func LoginUser(email, password string, pool *pgxpool.Pool) (string, error) {
 
 	return token, nil
 }
+
+func DeleteUser(userID string, pool *pgxpool.Pool) error {
+	// Check if the user exists
+	checkUserQuery := `SELECT id FROM users WHERE id = $1`
+	var existingUserID string
+	err := pool.QueryRow(context.Background(), checkUserQuery, userID).Scan(&existingUserID)
+	if err == pgx.ErrNoRows {
+		return errors.New("user not found")
+	} else if err != nil {
+		return fmt.Errorf("failed to check user existence: %v", err)
+	}
+
+	// Delete the user
+	deleteUserQuery := `DELETE FROM users WHERE id = $1`
+	_, err = pool.Exec(context.Background(), deleteUserQuery, userID)
+	if err != nil {
+		return fmt.Errorf("failed to delete user: %v", err)
+	}
+
+	return nil
+}
+
+func UpdateUser(userID string, newEmail, newPassword string, pool *pgxpool.Pool) error {
+	// Check if the user exists
+	checkUserQuery := `SELECT id FROM users WHERE id = $1`
+	var existingUserID string
+	err := pool.QueryRow(context.Background(), checkUserQuery, userID).Scan(&existingUserID)
+	if err == pgx.ErrNoRows {
+		return errors.New("user not found")
+	} else if err != nil {
+		return fmt.Errorf("failed to check user existence: %v", err)
+	}
+
+	// Start building the update query
+	updateFields := []string{}
+	updateValues := []interface{}{userID}
+
+	if newEmail != "" {
+		if !isValidEmail(newEmail) {
+			return errors.New("invalid email format")
+		}
+		updateFields = append(updateFields, "email = $2")
+		updateValues = append(updateValues, newEmail)
+	}
+
+	if newPassword != "" {
+		if !isValidPassword(newPassword) {
+			return errors.New("password must be at least 8 characters long and contain a mix of letters, numbers, and special characters")
+		}
+		// Hash the new password
+		hashedPassword, err := HashPassword(newPassword)
+		if err != nil {
+			return fmt.Errorf("failed to hash password: %v", err)
+		}
+		updateFields = append(updateFields, fmt.Sprintf("password = $%d", len(updateValues)+1))
+		updateValues = append(updateValues, hashedPassword)
+	}
+
+	// Ensure there is at least one field to update
+	if len(updateFields) == 0 {
+		return errors.New("no fields to update")
+	}
+
+	// Build the query
+	updateQuery := fmt.Sprintf(`UPDATE users SET %s WHERE id = $1`,
+		joinFields(updateFields, ", "))
+
+	// Execute the query
+	_, err = pool.Exec(context.Background(), updateQuery, updateValues...)
+	if err != nil {
+		return fmt.Errorf("failed to update user: %v", err)
+	}
+
+	return nil
+}
+
+func joinFields(fields []string, sep string) string {
+	result := ""
+	for i, field := range fields {
+		if i > 0 {
+			result += sep
+		}
+		result += field
+	}
+	return result
+}

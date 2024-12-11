@@ -1,70 +1,92 @@
+-- Users table: no changes needed, but the soft delete will apply to user-related entities
 CREATE TABLE users (
-    id VARCHAR PRIMARY KEY,
+    id UUID PRIMARY KEY,
     name VARCHAR NOT NULL,
     email VARCHAR NOT NULL UNIQUE,
-    password VARCHAR NOT NULL
+    password VARCHAR NOT NULL,
+    deleted_at TIMESTAMP -- Soft delete column
 );
+
+-- Businesses table with soft delete
 CREATE TABLE businesses (
-    id VARCHAR PRIMARY KEY,
+    id UUID PRIMARY KEY,
     name VARCHAR NOT NULL,
     description TEXT,
-    vendorId VARCHAR REFERENCES users(id) ON DELETE CASCADE
+    vendorId UUID REFERENCES users(id) ON DELETE CASCADE,
+    deleted_at TIMESTAMP -- Soft delete column
 );
+
+-- Branches table with soft delete
 CREATE TABLE branches (
-    id VARCHAR PRIMARY KEY,
-    businessId VARCHAR REFERENCES businesses(id) ON DELETE CASCADE,
-    location VARCHAR NOT NULL
+    id UUID PRIMARY KEY,
+    businessId UUID REFERENCES businesses(id) ON DELETE CASCADE,
+    location VARCHAR NOT NULL,
+    deleted_at TIMESTAMP -- Soft delete column
 );
+
+-- Subscriptions table with soft delete
 CREATE TABLE subscriptions (
-    id VARCHAR PRIMARY KEY,
-    businessId VARCHAR REFERENCES businesses(id) ON DELETE CASCADE,
+    id UUID PRIMARY KEY,
+    businessId UUID REFERENCES businesses(id) ON DELETE CASCADE,
     tier VARCHAR NOT NULL,
     startDate DATE NOT NULL,
     endDate DATE,
-    status VARCHAR
+    status VARCHAR,
+    deleted_at TIMESTAMP -- Soft delete column
 );
 
+-- Payments table with soft delete
 CREATE TABLE payments (
-    id VARCHAR PRIMARY KEY,
-    subscriptionId VARCHAR REFERENCES subscriptions(id) ON DELETE CASCADE,
+    id UUID PRIMARY KEY,
+    subscriptionId UUID REFERENCES subscriptions(id) ON DELETE CASCADE,
     amount DECIMAL NOT NULL,
     date DATE NOT NULL,
-    status VARCHAR NOT NULL
+    status VARCHAR NOT NULL,
+    deleted_at TIMESTAMP -- Soft delete column
 );
 
+-- Invoices table with soft delete
 CREATE TABLE invoices (
-    id VARCHAR PRIMARY KEY,
-    paymentId VARCHAR REFERENCES payments(id) ON DELETE CASCADE,
+    id UUID PRIMARY KEY,
+    paymentId UUID REFERENCES payments(id) ON DELETE CASCADE,
     issueDate DATE NOT NULL,
     dueDate DATE NOT NULL,
-    status VARCHAR NOT NULL
+    status VARCHAR NOT NULL,
+    deleted_at TIMESTAMP -- Soft delete column
 );
 
+-- Products table with soft delete
 CREATE TABLE products (
-    id VARCHAR PRIMARY KEY,
-    businessId VARCHAR REFERENCES businesses(id) ON DELETE CASCADE,
+    id UUID PRIMARY KEY,
+    businessId UUID REFERENCES businesses(id) ON DELETE CASCADE,
     name VARCHAR NOT NULL,
     details TEXT,
     quantity INT NOT NULL,
-    price DECIMAL NOT NULL
-);
-CREATE TABLE notifications (
-    id VARCHAR PRIMARY KEY,
-    userId VARCHAR REFERENCES users(id) ON DELETE CASCADE,
-    invoiceId VARCHAR REFERENCES invoices(id) ON DELETE SET NULL,
-    type VARCHAR(50) NOT NULL,
-    message TEXT NOT NULL, VARCHAR(20) DEFAULT 'pending',
-    createdAt TIMESTAMP DEFAULT NOW(),
-    updatedAt TIMESTAMP DEFAULT NOW()
+    price DECIMAL NOT NULL,
+    deleted_at TIMESTAMP -- Soft delete column
 );
 
+-- Notifications table with soft delete
+CREATE TABLE notifications (
+    id UUID PRIMARY KEY,
+    userId UUID REFERENCES users(id) ON DELETE CASCADE,
+    invoiceId UUID REFERENCES invoices(id) ON DELETE SET NULL,
+    type CHAR(20) NOT NULL,
+    message  CHAR(20) NOT NULL DEFAULT 'pending',
+    createdAt TIMESTAMP DEFAULT NOW(),
+    updatedAt TIMESTAMP DEFAULT NOW(),
+    deleted_at TIMESTAMP -- Soft delete column
+);
+
+-- Claims table with soft delete
 CREATE TABLE claims (
-    id VARCHAR PRIMARY KEY,
-    user_id VARCHAR NOT NULL,
+    id UUID PRIMARY KEY,
+    user_id UUID NOT NULL,
     email VARCHAR(255) NOT NULL,
     issued_at TIMESTAMP NOT NULL,
     expires_at TIMESTAMP NOT NULL,
     role VARCHAR(50),
     status VARCHAR(50) DEFAULT 'active',
+    deleted_at TIMESTAMP, -- Soft delete column
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );

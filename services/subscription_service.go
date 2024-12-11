@@ -129,3 +129,53 @@ func HandleSubscriptionOverlap(currentSubscriptionID string, newSubscription *mo
 
 	return errors.New("no overlap detected or invalid subscription")
 }
+
+func CreateSubscription(subscription *models.Subscription, pool *pgxpool.Pool) error {
+	query := `INSERT INTO subscriptions (id, tier, price, startDate, endDate, status) VALUES ($1, $2, $3, $4, $5, $6)`
+	_, err := pool.Exec(context.Background(), query, subscription.ID, subscription.Tier, subscription.Price, subscription.StartDate, subscription.EndDate, subscription.Status)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func GetSubscription(subscriptionID string, pool *pgxpool.Pool) (*models.Subscription, error) {
+	query := `SELECT id, tier, price, startDate, endDate, status FROM subscriptions WHERE id = $1`
+	var subscription models.Subscription
+	err := pool.QueryRow(context.Background(), query, subscriptionID).Scan(
+		&subscription.ID,
+		&subscription.Tier,
+		&subscription.Price,
+		&subscription.StartDate,
+		&subscription.EndDate,
+		&subscription.Status,
+	)
+	if err != nil {
+		return nil, errors.New("subscription not found")
+	}
+	return &subscription, nil
+}
+
+func UpdateSubscription(subscription *models.Subscription, pool *pgxpool.Pool) error {
+	query := `UPDATE subscriptions SET tier = $2, price = $3, startDate = $4, endDate = $5, status = $6 WHERE id = $1`
+	cmdTag, err := pool.Exec(context.Background(), query, subscription.ID, subscription.Tier, subscription.Price, subscription.StartDate, subscription.EndDate, subscription.Status)
+	if err != nil {
+		return err
+	}
+	if cmdTag.RowsAffected() == 0 {
+		return errors.New("no rows were updated, subscription not found")
+	}
+	return nil
+}
+
+func DeleteSubscription(subscriptionID string, pool *pgxpool.Pool) error {
+	query := `DELETE FROM subscriptions WHERE id = $1`
+	cmdTag, err := pool.Exec(context.Background(), query, subscriptionID)
+	if err != nil {
+		return err
+	}
+	if cmdTag.RowsAffected() == 0 {
+		return errors.New("no rows were deleted, subscription not found")
+	}
+	return nil
+}

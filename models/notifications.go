@@ -1,14 +1,17 @@
 package models
 
-import "time"
+import (
+	"github.com/google/uuid"
+	"time"
+)
 
 type Notification struct {
-	ID        string    `json:"id"`
-	UserID    string    `json:"userId"`
-	InvoiceID string    `json:"invoiceId"`
-	Type      string    `json:"type"`
-	Message   string    `json:"message"`
-	Status    string    `json:"status"`
-	CreatedAt time.Time `json:"createdAt"`
-	UpdatedAt time.Time `json:"updatedAt"`
+	ID        uuid.UUID  `json:"id"`
+	UserID    uuid.UUID  `json:"user_id"`
+	InvoiceID *uuid.UUID `json:"invoice_id"`
+	Type      string     `json:"type"`
+	Message   string     `json:"message"`
+	CreatedAt time.Time  `json:"created_at"`
+	UpdatedAt time.Time  `json:"updated_at"`
+	DeletedAt *time.Time `json:"deleted_at"`
 }
