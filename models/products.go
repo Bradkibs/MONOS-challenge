@@ -6,11 +6,11 @@ import (
 )
 
 type Product struct {
-	ID         uuid.UUID  `json:"id"`          // UUID as primary key
-	BusinessID uuid.UUID  `json:"business_id"` // Foreign key referencing Businesses
-	Name       string     `json:"name"`        // Product name, non-null
-	Details    string     `json:"details"`     // Optional product details (TEXT)
-	Quantity   int        `json:"quantity"`    // Quantity, non-null
-	Price      float64    `json:"price"`       // Price as DECIMAL, non-null
-	DeletedAt  *time.Time `json:"deleted_at"`  // Soft delete column, nullable
+	ID         uuid.UUID  `json:"id"`
+	BusinessID uuid.UUID  `json:"business_id"`
+	Name       string     `json:"name"`
+	Details    string     `json:"details"`
+	Quantity   int        `json:"quantity"`
+	Price      float64    `json:"price"`
+	DeletedAt  *time.Time `json:"deleted_at"`
 }

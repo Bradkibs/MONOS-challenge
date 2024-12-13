@@ -15,9 +15,9 @@ import (
 
 func CreateNotification(pool *pgxpool.Pool, notification *models.Notification) error {
 	query := `
-		INSERT INTO notifications (user_id, invoice_id, type, message, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, NOW(), NOW())
-		RETURNING id, created_at, updated_at
+		INSERT INTO notifications (user_id, invoice_id, type, message, createdat, updatedat, deletedat)
+		VALUES ($1, $2, $3, $4, NOW(), NOW(), NULL)
+		RETURNING id, createdat, updatedat
 	`
 	err := pool.QueryRow(
 		context.Background(),
@@ -37,8 +37,8 @@ func CreateNotification(pool *pgxpool.Pool, notification *models.Notification) e
 
 func GetNotificationByID(pool *pgxpool.Pool, id uuid.UUID) (*models.Notification, error) {
 	query := `
-		SELECT id, user_id, invoice_id, type, message, created_at, updated_at, deleted_at
-		FROM notifications WHERE id = $1
+		SELECT id, user_id, invoice_id, type, message, createdat, updatedat, deletedat
+		FROM notifications WHERE id = $1 AND deletedat IS NULL
 	`
 	notification := &models.Notification{}
 	err := pool.QueryRow(context.Background(), query, id).Scan(
@@ -57,9 +57,52 @@ func GetNotificationByID(pool *pgxpool.Pool, id uuid.UUID) (*models.Notification
 	return notification, nil
 }
 
+func GetNotificationByUserID(pool *pgxpool.Pool, userId uuid.UUID) (*models.Notification, error) {
+	query := `
+		SELECT id, user_id, invoice_id, type, message, createdat, updatedat, deletedat
+		FROM notifications WHERE user_id = $1 AND deletedat IS NULL
+	`
+	notification := &models.Notification{}
+	err := pool.QueryRow(context.Background(), query, userId).Scan(
+		&notification.ID,
+		&notification.UserID,
+		&notification.InvoiceID,
+		&notification.Type,
+		&notification.Message,
+		&notification.CreatedAt,
+		&notification.UpdatedAt,
+		&notification.DeletedAt,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to retrieve notification by ID: %w", err)
+	}
+	return notification, nil
+}
+func GetNotificationByInvoiceID(pool *pgxpool.Pool, invoiceId uuid.UUID) (*models.Notification, error) {
+	query := `
+		SELECT id, user_id, invoice_id, type, message, createdat, updatedat, deletedat
+		FROM notifications WHERE invoice_id = $1 AND deletedat IS NULL
+	`
+	notification := &models.Notification{}
+	err := pool.QueryRow(context.Background(), query, invoiceId).Scan(
+		&notification.ID,
+		&notification.UserID,
+		&notification.InvoiceID,
+		&notification.Type,
+		&notification.Message,
+		&notification.CreatedAt,
+		&notification.UpdatedAt,
+		&notification.DeletedAt,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to retrieve notification by ID: %w", err)
+	}
+	return notification, nil
+}
+
 func UpdateNotification(pool *pgxpool.Pool, notification *models.Notification) error {
 	query := `
-		UPDATE notifications SET type = $1, message = $2, updated_at = NOW() WHERE id = $3
+		UPDATE notifications SET type = $1, message = $2, updatedat = NOW() WHERE id = $3 AND deletedat IS NULL
 	`
 	cmdTag, err := pool.Exec(
 		context.Background(),
@@ -78,7 +121,7 @@ func UpdateNotification(pool *pgxpool.Pool, notification *models.Notification) e
 }
 
 func DeleteNotification(pool *pgxpool.Pool, id uuid.UUID) error {
-	query := `UPDATE notifications SET deleted_at = NOW() WHERE id = $1`
+	query := `UPDATE notifications SET deletedat = NOW() WHERE id = $1 AND deletedat IS NULL`
 	cmdTag, err := pool.Exec(context.Background(), query, id)
 	if err != nil {
 		return fmt.Errorf("failed to delete notification: %w", err)
@@ -91,13 +134,14 @@ func DeleteNotification(pool *pgxpool.Pool, id uuid.UUID) error {
 
 func SendReminderNotification(pool *pgxpool.Pool) error {
 	query := `
-		SELECT i.id, i.due_date, p.amount, u.id AS user_id, u.email
+		SELECT i.id, i.duedate, p.amount, u.id AS user_id, u.email
 		FROM invoices i
-		JOIN payments p ON i.payment_id = p.id
-		JOIN subscriptions s ON p.subscription_id = s.id
-		JOIN businesses b ON s.business_id = b.id
-		JOIN users u ON b.vendor_id = u.id
-		WHERE i.status != 'paid' AND i.due_date <= NOW() + INTERVAL '3 days'
+		JOIN payments p ON i.paymentid = p.id
+		JOIN subscriptions s ON p.subscriptionid = s.id
+		JOIN businesses b ON s.businessid = b.id
+		JOIN users u ON b.vendorid = u.id
+		WHERE i.status != 'paid' AND i.duedate <= NOW() + INTERVAL '3 days'
+		AND i.deletedat IS NULL
 	`
 	rows, err := pool.Query(context.Background(), query)
 	if err != nil {

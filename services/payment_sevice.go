@@ -4,11 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/google/uuid"
-	"time"
-
 	"github.com/Bradkibs/MONOS-challenge/models"
+	"github.com/Bradkibs/MONOS-challenge/utils"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"time"
 )
 
 func AddPayment(payment *models.Payment, pool *pgxpool.Pool) error {
@@ -59,8 +59,40 @@ func AddPayment(payment *models.Payment, pool *pgxpool.Pool) error {
 
 	return nil
 }
+func GetAllPayments(pool *pgxpool.Pool) ([]models.Payment, error) {
+	rows, err := pool.Query(context.Background(), `
+		SELECT id, subscriptionId, amount, date, status, deleted_at 
+		FROM payments
+		WHERE deleted_at IS NULL`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch payments: %w", err)
+	}
+	defer rows.Close()
 
-func GetPayment(paymentID string, pool *pgxpool.Pool) (*models.Payment, error) {
+	var payments []models.Payment
+	for rows.Next() {
+		var payment models.Payment
+		err := rows.Scan(
+			&payment.ID,
+			&payment.SubscriptionID,
+			&payment.Amount,
+			&payment.Date,
+			&payment.Status,
+			&payment.DeletedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan payment: %w", err)
+		}
+		payments = append(payments, payment)
+	}
+
+	if rows.Err() != nil {
+		return nil, fmt.Errorf("error occurred during row iteration: %w", rows.Err())
+	}
+
+	return payments, nil
+}
+func GetPaymentByID(paymentID uuid.UUID, pool *pgxpool.Pool) (*models.Payment, error) {
 	var payment models.Payment
 	err := pool.QueryRow(context.Background(), `
 		SELECT id, subscriptionId, amount, date, status FROM payments WHERE id = $1`, paymentID).
@@ -71,7 +103,7 @@ func GetPayment(paymentID string, pool *pgxpool.Pool) (*models.Payment, error) {
 	return &payment, nil
 }
 
-func GetPaymentsBySubscription(subscriptionID string, pool *pgxpool.Pool) ([]models.Payment, error) {
+func GetPaymentsBySubscription(subscriptionID uuid.UUID, pool *pgxpool.Pool) ([]models.Payment, error) {
 	rows, err := pool.Query(context.Background(), `
 		SELECT id, subscriptionId, amount, date, status FROM payments WHERE subscriptionId = $1`, subscriptionID)
 	if err != nil {
@@ -152,4 +184,36 @@ func HandlePartialPayment(paymentID string, pool *pgxpool.Pool) error {
 		return err
 	}
 	return errors.New("partial payment rejected, please retry with sufficient funds")
+}
+
+func ProcessPayment(payment *models.Payment, pool *pgxpool.Pool, paymentMethod string, stripeService utils.StripeService, mpesaService utils.MpesaService) error {
+	if paymentMethod == "credit_card" {
+		// Process payment via Stripe
+		chargeID, err := stripeService.Charge(payment.Amount, "USD", "Payment description")
+		if err != nil {
+			return fmt.Errorf("failed to process credit card payment: %w", err)
+		}
+		fmt.Printf("Stripe charge successful, Charge ID: %s\n", chargeID)
+	} else if paymentMethod == "mpesa" {
+		// Process payment via M-Pesa Daraja API
+		transactionID, err := mpesaService.ProcessExpressPayment(payment.Amount, "254712345678", "Business Shortcode")
+		if err != nil {
+			return fmt.Errorf("failed to process mobile money payment: %w", err)
+		}
+		fmt.Printf("M-Pesa payment successful, Transaction ID: %s\n", transactionID)
+	} else {
+		return errors.New("unsupported payment method")
+	}
+
+	// Assign values to the payment model
+	payment.ID = uuid.New()
+	payment.Date = time.Now()
+
+	// Add payment record to the database
+	err := AddPayment(payment, pool)
+	if err != nil {
+		return fmt.Errorf("failed to add payment record: %w", err)
+	}
+
+	return nil
 }
