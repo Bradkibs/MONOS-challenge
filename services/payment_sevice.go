@@ -103,7 +103,7 @@ func GetPaymentByID(paymentID uuid.UUID, pool *pgxpool.Pool) (*models.Payment, e
 	return &payment, nil
 }
 
-func GetPaymentsBySubscription(subscriptionID uuid.UUID, pool *pgxpool.Pool) ([]models.Payment, error) {
+func GetPaymentsBySubscriptionID(subscriptionID uuid.UUID, pool *pgxpool.Pool) ([]models.Payment, error) {
 	rows, err := pool.Query(context.Background(), `
 		SELECT id, subscriptionId, amount, date, status FROM payments WHERE subscriptionId = $1`, subscriptionID)
 	if err != nil {
@@ -148,7 +148,7 @@ func DeletePayment(paymentID uuid.UUID, pool *pgxpool.Pool) error {
 	return nil
 }
 
-func HandleOverduePayment(subscriptionID string, pool *pgxpool.Pool) error {
+func HandleOverduePayment(subscriptionID uuid.UUID, pool *pgxpool.Pool) error {
 	var endDate time.Time
 	var status string
 	err := pool.QueryRow(context.Background(), `
@@ -168,7 +168,7 @@ func HandleOverduePayment(subscriptionID string, pool *pgxpool.Pool) error {
 	return nil
 }
 
-func HandlePartialPayment(paymentID string, pool *pgxpool.Pool) error {
+func HandlePartialPayment(paymentID uuid.UUID, pool *pgxpool.Pool) error {
 	var amount float64
 	var status string
 	err := pool.QueryRow(context.Background(), `

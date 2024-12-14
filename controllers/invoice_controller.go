@@ -29,7 +29,7 @@ func (ic *InvoiceController) AddInvoice(c *fiber.Ctx) error {
 }
 
 func (ic *InvoiceController) GetInvoiceByID(c *fiber.Ctx) error {
-	invoiceID := c.Params("id")
+	invoiceID := c.Params("invoice_id")
 	id, err := uuid.Parse(invoiceID)
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid invoice ID"})
@@ -58,7 +58,7 @@ func (ic *InvoiceController) UpdateInvoice(c *fiber.Ctx) error {
 }
 
 func (ic *InvoiceController) DeleteInvoice(c *fiber.Ctx) error {
-	invoiceID := c.Params("id")
+	invoiceID := c.Params("invoice_id")
 	id, err := uuid.Parse(invoiceID)
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid invoice ID"})

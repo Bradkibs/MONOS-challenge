@@ -1,6 +1,8 @@
 package controllers
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"github.com/Bradkibs/MONOS-challenge/models"
 	"github.com/Bradkibs/MONOS-challenge/services"
@@ -30,7 +32,7 @@ func (pc *PaymentController) AddPayment(c *fiber.Ctx) error {
 }
 
 func (pc *PaymentController) GetPaymentByID(c *fiber.Ctx) error {
-	paymentID := c.Params("id")
+	paymentID := c.Params("payment_id")
 	id, err := uuid.Parse(paymentID)
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid payment ID"})
@@ -59,7 +61,7 @@ func (pc *PaymentController) UpdatePayment(c *fiber.Ctx) error {
 }
 
 func (pc *PaymentController) DeletePayment(c *fiber.Ctx) error {
-	paymentID := c.Params("id")
+	paymentID := c.Params("payment_id")
 	id, err := uuid.Parse(paymentID)
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid payment ID"})
@@ -81,8 +83,48 @@ func (pc *PaymentController) GetAllPayments(c *fiber.Ctx) error {
 
 	return c.Status(fiber.StatusOK).JSON(payments)
 }
-func (pc *PaymentController) ProcessPayment(c *fiber.Ctx) error {
 
+func (pc *PaymentController) GetPaymentsBySubscriptionID(c *fiber.Ctx) error {
+	subscriptionID := c.Params("subscription_id")
+	id, err := uuid.Parse(subscriptionID)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid subscription ID"})
+	}
+
+	payments, err := services.GetPaymentsBySubscriptionID(id, pc.DB)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	return c.Status(fiber.StatusOK).JSON(payments)
+}
+
+func (pc *PaymentController) HandleOverduePayment(c *fiber.Ctx) error {
+	subscriptionID := c.Params("subscription_id")
+
+	err := services.HandleOverduePayment(subscriptionID, pc.DB)
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			return c.Status(fiber.StatusRequestTimeout).JSON(fiber.Map{"error": "Request timeout"})
+		}
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{"message": "Overdue payment handled successfully"})
+}
+
+func (pc *PaymentController) HandlePartialPayment(c *fiber.Ctx) error {
+	paymentID := c.Params("payment_id")
+
+	err := services.HandlePartialPayment(paymentID, pc.DB)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{"message": "Partial payment handled successfully"})
+}
+
+func (pc *PaymentController) ProcessPayment(c *fiber.Ctx) error {
 	type PaymentRequest struct {
 		Amount        float64 `json:"amount" validate:"required,gt=0"`
 		PaymentMethod string  `json:"payment_method" validate:"required"`
@@ -111,13 +153,15 @@ func (pc *PaymentController) ProcessPayment(c *fiber.Ctx) error {
 	stripeService := utils.NewMockStripeService()
 	mpesaService := utils.NewMockMpesaService()
 
-	// Process the payment using the service
 	err := services.ProcessPayment(payment, pc.DB, paymentReq.PaymentMethod, stripeService, mpesaService)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	// Optionally, send an email or perform other post-processing
+	if err := services.HandlePartialPayment(uuid.Parse(payment.ID), pc.DB); err != nil {
+		fmt.Println("Warning:", err.Error())
+	}
+
 	emailErr := utils.SendEmail("user@example.com", "Payment Processed", fmt.Sprintf("Your payment of %.2f has been successfully processed.", payment.Amount))
 	if emailErr != nil {
 		fmt.Printf("Failed to send email: %v\n", emailErr)

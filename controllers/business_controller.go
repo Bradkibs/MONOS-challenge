@@ -38,7 +38,7 @@ func (bc *BusinessController) CreateBusiness(c *fiber.Ctx) error {
 }
 
 func (bc *BusinessController) GetBusinessByID(c *fiber.Ctx) error {
-	businessID := c.Params("id")
+	businessID := c.Params("business_id")
 	id, err := uuid.Parse(businessID)
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid business ID"})
@@ -67,7 +67,7 @@ func (bc *BusinessController) UpdateBusiness(c *fiber.Ctx) error {
 }
 
 func (bc *BusinessController) DeleteBusiness(c *fiber.Ctx) error {
-	businessID := c.Params("id")
+	businessID := c.Params("business_id")
 	id, err := uuid.Parse(businessID)
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid business ID"})

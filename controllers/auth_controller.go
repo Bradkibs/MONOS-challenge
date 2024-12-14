@@ -1,7 +1,9 @@
 package controllers
 
 import (
+	"github.com/Bradkibs/MONOS-challenge/models"
 	"github.com/Bradkibs/MONOS-challenge/services"
+	"github.com/Bradkibs/MONOS-challenge/utils"
 	"github.com/gofiber/fiber/v2"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -19,8 +21,8 @@ func (ac *AuthController) RegisterByMail(c *fiber.Ctx) error {
 	if err := c.BodyParser(&input); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
-
-	token, err := services.RegisterUserByEmail(input.Email, input.Password, input.Role, ac.DB)
+	user := models.User{ID: utils.GenerateUniqueID(), Email: input.Email, Password: input.Password, Role: input.Role}
+	token, err := services.RegisterUserByEmail(&user, ac.DB)
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}

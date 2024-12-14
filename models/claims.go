@@ -1,6 +1,7 @@
 package models
 
 import (
+	"errors"
 	"github.com/google/uuid"
 	"time"
 )
@@ -17,6 +18,13 @@ type Claims struct {
 }
 
 func (c Claims) Valid() error {
-	//TODO implement me
-	panic("implement me")
+	if c.ExpiresAt.Before(time.Now()) {
+		return errors.New("token has expired")
+	}
+
+	if c.DeletedAt != nil {
+		return errors.New("account is deactivated or deleted")
+	}
+
+	return nil
 }

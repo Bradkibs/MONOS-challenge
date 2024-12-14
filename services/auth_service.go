@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/Bradkibs/MONOS-challenge/models"
+	"github.com/Bradkibs/MONOS-challenge/utils"
 	"github.com/golang-jwt/jwt/v4"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -33,7 +34,7 @@ func CheckPassword(hashedPassword, plainPassword string) error {
 func GenerateJWT(userID, emailOrPhoneNumber, role string, deletedAt *time.Time) (string, error) {
 	expirationTime := time.Now().Add(24 * time.Hour)
 	claims := &models.Claims{
-		ID:        uuid.New(),
+		ID:        utils.GenerateUniqueID(),
 		UserID:    uuid.MustParse(userID),
 		Email:     emailOrPhoneNumber,
 		IssuedAt:  time.Now(),
@@ -64,34 +65,34 @@ func ParseJWT(tokenString string) (*models.Claims, error) {
 	return claims, nil
 }
 
-func RegisterUserByEmail(email, password, role string, pool *pgxpool.Pool) (string, error) {
-	if !isValidEmail(email) {
+func RegisterUserByEmail(user *models.User, pool *pgxpool.Pool) (string, error) {
+	if !isValidEmail(user.Email) {
 		return "", errors.New("invalid email format")
 	}
-	if !isValidPassword(password) {
+	if !isValidPassword(user.Password) {
 		return "", errors.New("password must be at least 8 characters long and contain a mix of letters, numbers, and special characters")
 	}
 
 	var existingUserID uuid.UUID
-	err := pool.QueryRow(context.Background(), "SELECT id FROM users WHERE email = $1", email).Scan(&existingUserID)
+	err := pool.QueryRow(context.Background(), "SELECT id FROM users WHERE email = $1", user.Email).Scan(&existingUserID)
 	if err == nil {
 		return "", errors.New("user with this email already exists")
 	} else if err != pgx.ErrNoRows {
 		return "", fmt.Errorf("failed to check for existing user: %v", err)
 	}
 
-	hashedPassword, err := HashPassword(password)
+	hashedPassword, err := HashPassword(user.Password)
 	if err != nil {
 		return "", fmt.Errorf("failed to hash password: %v", err)
 	}
 
-	var userID uuid.UUID
-	err = pool.QueryRow(context.Background(), "INSERT INTO users (email, password, role) VALUES ($1, $2, $3) RETURNING id", email, hashedPassword, role).Scan(&userID)
+	userID := utils.GenerateUniqueID()
+	err = pool.QueryRow(context.Background(), "INSERT INTO users (email, password, role) VALUES ($1, $2, $3)", user.Email, hashedPassword, user.Role).Scan(&userID)
 	if err != nil {
 		return "", fmt.Errorf("failed to create user: %v", err)
 	}
 
-	token, err := GenerateJWT(userID.String(), email, role, nil)
+	token, err := GenerateJWT(userID.String(), user.Email, user.Role, nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to generate token: %v", err)
 	}
@@ -106,7 +107,7 @@ func RegisterUserByPhoneNumber(phoneNumber, password, role string, pool *pgxpool
 	}
 
 	var existingUserID uuid.UUID
-	err := pool.QueryRow(context.Background(), "SELECT id FROM users WHERE email = $1", phoneNumber).Scan(&existingUserID)
+	err := pool.QueryRow(context.Background(), "SELECT id FROM users WHERE phone_number = $1 AND deleted_at IS NULL", phoneNumber).Scan(&existingUserID)
 	if err == nil {
 		return "", errors.New("user with this email already exists")
 	} else if err != pgx.ErrNoRows {
@@ -118,8 +119,8 @@ func RegisterUserByPhoneNumber(phoneNumber, password, role string, pool *pgxpool
 		return "", fmt.Errorf("failed to hash password: %v", err)
 	}
 
-	var userID uuid.UUID
-	err = pool.QueryRow(context.Background(), "INSERT INTO users (phone_number, password, role) VALUES ($1, $2, $3) RETURNING id", phoneNumber, hashedPassword, role).Scan(&userID)
+	userID := utils.GenerateUniqueID()
+	err = pool.QueryRow(context.Background(), "INSERT INTO users (phone_number, password, role) VALUES ($1, $2, $3) RETURNING id AND deleted_at IS NULL", phoneNumber, hashedPassword, role).Scan(&userID)
 	if err != nil {
 		return "", fmt.Errorf("failed to create user: %v", err)
 	}
@@ -163,7 +164,7 @@ func LoginUser(email, password string, pool *pgxpool.Pool) (string, error) {
 	var userID uuid.UUID
 	var hashedPassword, role string
 	var deletedAt *time.Time
-	err := pool.QueryRow(context.Background(), "SELECT id, password, role, deleted_at FROM users WHERE email = $1", email).Scan(&userID, &hashedPassword, &role, &deletedAt)
+	err := pool.QueryRow(context.Background(), "SELECT id, password, role, deleted_at FROM users WHERE email = $1 AND deleted_at IS NULL", email).Scan(&userID, &hashedPassword, &role, &deletedAt)
 	if err != nil {
 		return "", errors.New("invalid email or password")
 	}

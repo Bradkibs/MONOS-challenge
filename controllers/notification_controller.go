@@ -30,7 +30,7 @@ func (c *NotificationController) CreateNotification(ctx *fiber.Ctx) error {
 }
 
 func (c *NotificationController) GetNotificationByID(ctx *fiber.Ctx) error {
-	idStr := ctx.Params("id")
+	idStr := ctx.Params("notification_id")
 	id, err := uuid.Parse(idStr)
 	if err != nil {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
@@ -85,7 +85,7 @@ func (c *NotificationController) UpdateNotification(ctx *fiber.Ctx) error {
 }
 
 func (c *NotificationController) DeleteNotification(ctx *fiber.Ctx) error {
-	idStr := ctx.Params("id")
+	idStr := ctx.Params("notification_id")
 	id, err := uuid.Parse(idStr)
 	if err != nil {
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{

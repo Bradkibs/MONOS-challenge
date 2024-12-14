@@ -73,12 +73,10 @@ func (m *MockMpesaService) ProcessExpressPayment(amount float64, phoneNumber, sh
 	return fmt.Sprintf("mock_mpesa_transaction_id_%f", amount), nil
 }
 
-// NewMockStripeService creates a new instance of MockStripeService
 func NewMockStripeService() StripeService {
 	return &MockStripeService{}
 }
 
-// NewMockMpesaService creates a new instance of MockMpesaService
 func NewMockMpesaService() MpesaService {
 	return &MockMpesaService{}
 }
